@@ -1,0 +1,222 @@
+---
+title: "eco590-achievements innovation"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+#df <- read.csv("C:/Users/Tim/OneDrive/Desktop/thesis/innovation_achievements/main_50kdata")
+
+
+df <- read.csv("C:/Users/Tim/OneDrive/Desktop/thesis/dataset_final/df1.csv")
+pre_treatment_df <- read.csv("C:/Users/Tim/OneDrive/Desktop/thesis/dataset_final/pretreatment1.csv")
+
+
+##################################################
+pre_treatment_df <- pre_treatment_df %>%
+  mutate(New_Repos = New_Repository + Forks)
+pre_treatment_df <- pre_treatment_df %>%
+  rename(New_Original_Repos = New_Repository)
+
+#pre_treatment_df <- df[df$month_year %in% c("03-2022", "04-2022", "05-2022"), ]
+
+options(scipen = 999)
+
+# Adding natural log columns
+df$log_New_Repository <- log(df$New_Repository + 1)  
+df$log_Commits <- log(df$Commits + 1)  
+df$log_IssuesEvent <- log(df$IssuesEvent + 1) 
+
+# Adding squared log columns
+df$sq_log_New_Repository <- df$log_New_Repository^2
+df$sq_log_Commits <- df$log_Commits^2
+df$sq_log_IssuesEvent <- df$log_IssuesEvent^2
+
+
+########################################
+#########################################
+##########################################
+
+
+Tr <- cbind(df$has_achievements)
+Tr_pre <- cbind(pre_treatment_df$has_achievements)
+
+Y1 <- cbind(df$New_Repository)
+Y1_pre <- cbind(pre_treatment_df$New_Repository)
+
+Y2 <- cbind(df$Commits)
+Y2_pre <- cbind(pre_treatment_df$Commits)
+
+Y3 <- cbind(df$IssuesEvent)
+Y3_pre <- cbind(pre_treatment_df$IssuesEvent)
+
+X1 <- cbind(df$New_Repository, df$Commits, df$IssuesEvent, df$log_New_Repository,df$log_Commits,df$log_IssuesEvent,df$sq_log_New_Repository, df$log_Commits, df$log_IssuesEvent)
+
+X1_pre <- cbind(pre_treatment_df$New_Repository, pre_treatment_df$Commits, pre_treatment_df$IssuesEvent, pre_treatment_df$log_New_Repository,pre_treatment_df$log_Commits,pre_treatment_df$log_IssuesEvent,pre_treatment_df$sq_log_New_Repository, pre_treatment_df$sq_log_Commits, pre_treatment_df$sq_log_IssuesEvent)
+
+
+
+
+
+
+
+write.csv(df, "C:/Users/Tim/OneDrive/Desktop/thesis/dataset_final/df1.csv", row.names = FALSE)
+write.csv(pre_treatment_df, "C:/Users/Tim/OneDrive/Desktop/thesis/dataset_final/pretreatment1.csv", row.names = FALSE)
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+summary(Tr)
+summary(Y1)
+summary(Y2)
+summary(Y3)
+summary(X1)
+
+##############################
+###############################
+################################
+
+
+
+# Step 2: Subsetting the data into treatment and control groups
+treatment <- pre_treatment_df %>% filter(has_achievements == 1)
+control <- pre_treatment_df %>% filter(has_achievements == 0)
+
+# Step 3: Descriptive Statistics for Treatment Group
+treatment_descriptive <- describe(treatment[, c( "New_Repository","Forks", "Commits", "IssuesEvent","PullRequest")])
+treatment_descriptive$vars <- NULL
+ ntreatment <- length(unique(treatment$user_login))
+treatment_descriptive <- treatment_descriptive %>%
+  mutate(across(everything(), ~ifelse(. == 12249, 4083, .)))
+
+
+
+
+# Descriptive Statistics for Control Group
+control_descriptive <- describe(control[, c( "New_Repository","Forks","Commits", "IssuesEvent", "PullRequest")])
+control_descriptive$vars <- NULL
+ncontrol <- length(unique(control$user_login))
+print(ncontrol)
+control_descriptive <- control_descriptive %>%
+  mutate(across(everything(), ~ifelse(. == 135654, 45218, .)))
+
+#############*************ASk about which n to use. full panel set or unique userlogin*****************##################
+#############************* And how to include the pairwise ttest (1)-(2) inside of table(1) ***********#################
+
+
+
+
+
+
+
+
+
+
+
+
+
+###############################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#propensity score model
+glm1 <- glm(Tr_pre ~ X1_pre, data=pre_treatment_df, family= "binomial" )
+summary(glm1)
+
+glm_probit <- glm(Tr_pre ~ X1_pre, data=pre_treatment_df, family=binomial(link="probit"))
+summary(glm_probit)
+
+propensity_scores <- fitted(glm_probit)
+
+weights <- ifelse(pre_treatment_df$Tr_pre == 1,
+                  1 / propensity_scores,
+                  1 / (1 - propensity_scores))
+
+weighted_poisson_model <- glm(Y1 ~ Tr + X1,
+                              family = poisson(),
+                              data = your_data,
+                              weights = IPW_weights)
+df$month_year <- as.Date(paste0(df$month_year, "-01"), format="%m-%Y-%d")
+
+df$post_period <- as.integer(df$month_year > as.Date("2022-06-01"))
+
+library(glm2)  # This library handles large datasets and complex GLM models efficiently
+
+model <- glm2(Y1 ~ has_achievements * post_period + other_covariates,
+              family = poisson(),
+              data = df)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+pre_treatment_df$propensity_score <- predict(glm1, type = "response")
+
+
+
+
+
+rr1 <- Match(Y = Y1, Tr = Tr, X = glm1$fitted, version = "fast", ties = FALSE)
+summary(rr1)
+
+MatchBalance(Tr ~ X1, match.out = rr1, nboots=0, data=df)
+qqplot(var1[rr1$index.control], var1[rr1$index.treated])
+abline(coef = c(0,1), col =2)
+
+qqplot(var1[rr1$index.control], var1[rr1$index.treated])
+abline(coef = c(0,1), col = 2)
+detach()
+
+gen1 <= GenMatch(TR = TR, X = X1, BalanceMatrix = X, pop.size = 10)
+mgen1 <= Match(TR = TR, X = X1, BalanceMatrix = X, pop.size = 10)
+
+
+
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
