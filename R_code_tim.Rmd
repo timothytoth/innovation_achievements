@@ -1,0 +1,210 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+df <- read.csv("C:/Users/Tim/OneDrive/Desktop/thesis/dataset_final/fully_finished_df.csv")
+
+pre_treatment_df <-
+read.csv("C:/Users/Tim/OneDrive/Desktop/thesis/dataset_final/pretreatment1.csv")
+```
+
+
+```{r}
+pre_treatment_df <- pre_treatment_df %>%
+  mutate(New_Repos = New_Repository + Forks)
+
+pre_treatment_df <- pre_treatment_df %>%
+  rename(New_Original_Repos = New_Repository)
+
+pre_treatment_df$log_New_Repos <- log(pre_treatment_df$New_Repos + 1)
+
+pre_treatment_df$sq_log_New_Repos <-pre_treatment_df$log_New_Repos^2
+
+df$log_New_Original_Repos <- log(df$New_Original_Repos +1)
+df$sq_log_new_original_repos <- df$log_New_Original_Repos^2
+df$X <- NULL
+```
+
+
+
+
+```{r}
+Tr <- cbind(df$has_achievements)
+Tr_pre <- cbind(pre_treatment_df$has_achievements)
+
+Y1 <- cbind(df$New_Repos)
+Y1_pre <- cbind(pre_treatment_df$New_Repository)
+
+Y2 <- cbind(df$Commits)
+Y2_pre <- cbind(pre_treatment_df$Commits)
+
+Y3 <- cbind(df$IssuesEvent)
+Y3_pre <- cbind(pre_treatment_df$IssuesEvent)
+
+X1 <- cbind(df$New_Repos, df$Commits, df$IssuesEvent, df$log_New_Repos,df$log_Commits,df$log_IssuesEvent,df$sq_log_New_Repos, df$sq_log_Commits, df$sq_log_IssuesEvent)
+
+X1_pre <- cbind(pre_treatment_df$New_Repos, pre_treatment_df$Commits, pre_treatment_df$IssuesEvent, pre_treatment_df$log_New_Repos, pre_treatment_df$log_Commits,pre_treatment_df$log_IssuesEvent,pre_treatment_df$sq_log_New_Repos, pre_treatment_df$sq_log_Commits, pre_treatment_df$sq_log_IssuesEvent)
+```
+
+```{r}
+options(scipen = 999)
+#probit for propensity score
+glm_probit <- glm(Tr_pre ~ X1_pre, data=pre_treatment_df, family=binomial(link="probit"))
+summary(glm_probit)
+
+propensity_scores <- fitted(glm_probit)
+pre_treatment_df$propensity_scores <- propensity_scores
+
+
+
+##putting poropensity score into main df 
+df <- merge(df, pre_treatment_df[c("user_login", "propensity_scores")], by = "user_login", all.x = TRUE)
+df <- df[!duplicated(df[c("user_login", "month_year")]), ]
+
+#IPW
+df$weights <- ifelse(df$has_achievements == 1,
+                  1 / propensity_scores,
+                  1 / (1 - propensity_scores))
+
+
+#binary term for after treatment 
+df$Post_Treatment <- as.integer(df$month_year > "06-2022")
+
+#interaction of has_achievements and post treatment
+df$Interaction <- df$has_achievements * df$Post_Treatment
+
+
+#pglm model
+model <- pglm(log_New_Repos ~ Interaction + factor(month_year), data = df,
+              model = "within", family = poisson(link = "log"), index = c("user_login", "month_year"))
+
+
+summary(model)
+
+#just checking something to make sure that this wasnt the reason for an error -disregard-
+sum(df$New_Repos <= 0)
+
+
+
+
+
+
+
+
+
+```
+
+
+```{r}
+# Fit Poisson models for different outcomes
+#new total repos
+#new original repos
+#new forked repos
+
+model_new_repos <- pglm(New_Repos ~ Interaction, data = df,
+                        model = "within", family = poisson(link = "log"),
+                        index = c("user_login", "month_year"))
+
+model_new_original_repos <- pglm(New_Original_Repos ~ Interaction, data = df,
+                                 model = "within", family = poisson(link = "log"),
+                                 index = c("user_login", "month_year"))
+
+model_new_forked_repos <- pglm(Forks ~ Interaction, data = df,
+                               model = "within", family = poisson(link = "log"),
+                               index = c("user_login", "month_year"))
+
+
+summary(model_new_repos)
+
+
+
+ 
+test_model_new_repos <- coeftest(model_new_repos)
+test_model_new_original_repos <- coeftest(model_new_original_repos)
+test_model_new_forked_repos <- coeftest(model_new_forked_repos)
+
+
+stargazer(test_model_new_repos, test_model_new_original_repos, test_model_new_forked_repos, 
+          type = "text",
+          title = "Table 1: The impact of launching achievements on users who who participated in the treatment",
+          model.names = FALSE,  
+          column.labels = c("New Repos", "New Original Repos", "New Forked Repos"),
+          out = "regression_results.txt")
+
+
+
+
+
+
+stargazer(test_model_new_repos, test_model_new_original_repos, test_model_new_forked_repos, 
+          type = "html",
+          title = "Table 1: The Impact of Launching Achievements on Users Who Participated in the Treatment",
+          out = "C:/Users/Tim/OneDrive/Desktop/thesis/stargazertableone.html",  
+          model.names = FALSE,
+          column.labels = c("New Repos", "New Original Repos", "New Forked Repos"),
+          covariate.labels = c("Interaction"),
+          omit.stat = c("all"),  
+          digits = 3,
+          star.cutoffs = c(0.05, 0.01, 0.001), 
+          notes = "Note: *p<0.1; **p<0.05; ***p<0.01", 
+          notes.align = "center",
+          notes.label = "")  
+
+
+
+
+
+stargazer(test_model_new_repos, test_model_new_original_repos, test_model_new_forked_repos, 
+          type = "html",
+          title = "Table 1: The Impact of Launching Achievements on Users Who Participated in the Treatment",
+          out = "C:/Users/Tim/OneDrive/Desktop/thesis/stargazertableone.html",  
+          model.names = FALSE,
+          column.labels = c("New Repos", "New Original Repos", "New Forked Repos"),
+          covariate.labels = c("Interaction"),
+          omit.stat = c("all"),  
+          digits = 3,
+          star.cutoffs = c(0.05, 0.01, 0.001),  
+          notes = "Note: *p<0.1; **p<0.05; ***p<0.01", 
+          notes.align = "c", 
+          notes.label = "Note:")  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+stargazer(coeftest(model_new_repos), type="text")
+
+stargazer(coeftest(model_new_original_repos), type="text")
+
+stargazer(coeftest(model_new_forked_repos), type="text")
+
+```
+
+
+
+
+```{r}
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
